@@ -246,11 +246,78 @@ async def google_callback(request: Request):
         
         # Redirect to frontend with token
         frontend_url = os.environ.get("REACT_APP_FRONTEND_URL", "http://localhost:3000")
-        return HTTPException(status_code=302, headers={"Location": f"{frontend_url}?token={access_token}&name={name}"})
+        redirect_url = f"{frontend_url}?token={access_token}&name={name}"
+        
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(url=redirect_url)
         
     except Exception as e:
         logger.error(f"Google OAuth callback error: {e}")
         raise HTTPException(status_code=500, detail="OAuth authentication failed")
+
+@app.post("/api/auth/google/verify")
+async def google_verify(request: dict):
+    """Verify Google OAuth token from frontend"""
+    try:
+        credential = request.get("credential")
+        user_info = request.get("user_info")
+        
+        if not user_info:
+            raise HTTPException(status_code=400, detail="User info not provided")
+        
+        email = user_info.get("email")
+        name = user_info.get("name")
+        google_id = user_info.get("sub")
+        picture = user_info.get("picture")
+        
+        # Check if user exists
+        existing_user = await users_collection.find_one({"email": email})
+        
+        if existing_user:
+            # Update last login
+            await users_collection.update_one(
+                {"id": existing_user["id"]},
+                {"$set": {"last_login": datetime.utcnow()}}
+            )
+            user_data = existing_user
+        else:
+            # Create new user
+            user_id = generate_user_id()
+            user_doc = {
+                "id": user_id,
+                "email": email,
+                "name": name,
+                "google_id": google_id,
+                "picture": picture,
+                "password_hash": "",  # No password for OAuth users
+                "api_keys": {},
+                "created_at": datetime.utcnow(),
+                "last_login": datetime.utcnow(),
+                "is_active": True,
+                "oauth_provider": "google"
+            }
+            
+            await users_collection.insert_one(user_doc)
+            user_data = user_doc
+
+        # Create access token
+        access_token = create_access_token(data={"sub": user_data["id"], "email": user_data["email"]})
+        
+        return {
+            "message": "Google authentication successful",
+            "access_token": access_token,
+            "token_type": "bearer",
+            "user": {
+                "id": user_data["id"],
+                "email": user_data["email"],
+                "name": user_data["name"],
+                "picture": user_data.get("picture")
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Google OAuth verify error: {e}")
+        raise HTTPException(status_code=500, detail="OAuth verification failed")
 
 # ===============================================
 # HEALTH AND STATUS ENDPOINTS
