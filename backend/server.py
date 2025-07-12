@@ -6,7 +6,6 @@ from datetime import datetime
 from typing import List, Optional
 from fastapi import FastAPI, File, UploadFile, HTTPException, Form, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.middleware.sessions import SessionMiddleware
 from pydantic import BaseModel
 from PIL import Image
 import pytesseract
