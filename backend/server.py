@@ -14,10 +14,23 @@ from datetime import datetime
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
-# MongoDB connection with fallback
+# MongoDB connection with SSL fix
 mongo_url = os.environ.get('MONGO_URL', 'mongodb://localhost:27017')
 db_name = os.environ.get('DB_NAME', 'ai2_production')
-client = AsyncIOMotorClient(mongo_url)
+
+# Add SSL options for MongoDB Atlas
+if 'mongodb+srv://' in mongo_url:
+    client = AsyncIOMotorClient(
+        mongo_url,
+        tls=True,
+        tlsAllowInvalidCertificates=True,
+        connectTimeoutMS=30000,
+        socketTimeoutMS=30000,
+        retryWrites=True
+    )
+else:
+    client = AsyncIOMotorClient(mongo_url)
+
 db = client[db_name]
 
 # Create the main app
