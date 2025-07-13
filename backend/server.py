@@ -20,7 +20,7 @@ db_name = os.environ.get('DB_NAME', 'ai2_production')
 client = AsyncIOMotorClient(mongo_url)
 db = client[db_name]
 
-# Create the main app without a prefix
+# Create the main app
 app = FastAPI(
     title="AI2 Backend API",
     description="Backend API for AI2 application",
@@ -40,17 +40,30 @@ class StatusCheck(BaseModel):
 class StatusCheckCreate(BaseModel):
     client_name: str
 
-# Add your routes to the router instead of directly to app
+# Root endpoint (без префикса)
+@app.get("/")
+async def read_root():
+    return {"message": "AI2 Backend is running", "status": "OK", "api_docs": "/docs"}
+
+# Health check для Render (без префикса)
+@app.get("/health")
+async def render_health_check():
+    try:
+        await db.list_collection_names()
+        return {"status": "healthy", "database": "connected", "service": "render-health-check"}
+    except Exception as e:
+        return {"status": "unhealthy", "database": "disconnected", "error": str(e)}
+
+# API endpoints (с префиксом /api)
 @api_router.get("/")
-async def root():
+async def api_root():
     return {"message": "Hello World", "status": "API is running"}
 
 @api_router.get("/health")
-async def health_check():
+async def api_health_check():
     try:
-        # Check database connection
         await db.list_collection_names()
-        return {"status": "healthy", "database": "connected"}
+        return {"status": "healthy", "database": "connected", "service": "api-health-check"}
     except Exception as e:
         return {"status": "unhealthy", "database": "disconnected", "error": str(e)}
 
@@ -58,7 +71,7 @@ async def health_check():
 async def create_status_check(input: StatusCheckCreate):
     status_dict = input.dict()
     status_obj = StatusCheck(**status_dict)
-    _ = await db.status_checks.insert_one(status_obj.dict())
+    await db.status_checks.insert_one(status_obj.dict())
     return status_obj
 
 @api_router.get("/status", response_model=List[StatusCheck])
@@ -66,27 +79,20 @@ async def get_status_checks():
     status_checks = await db.status_checks.find().to_list(1000)
     return [StatusCheck(**status_check) for status_check in status_checks]
 
-# Include the router in the main app
+# Include the router
 app.include_router(api_router)
 
+# CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=[
-        "https://*.netlify.app",
-        "https://localhost:3000",
-        "http://localhost:3000",
-        "*"  # For development - remove in production
-    ],
+    allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+# Logging
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 @app.on_event("shutdown")
